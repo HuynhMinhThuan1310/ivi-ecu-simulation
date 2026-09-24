@@ -1,0 +1,29 @@
+# Build artifacts của ESP-IDF
+build/
+sdkconfig
+sdkconfig.old
+*.bin
+*.elf
+*.map
+
+# Build artifacts của Node.js
+node_modules/
+npm-debug.log*
+
+# Build artifacts của Buildroot
+output/
+dl/
+.config.old
+
+# Temporary & system files
+*.docx
+*.swp
+*~
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.env
