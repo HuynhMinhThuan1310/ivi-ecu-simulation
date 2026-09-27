@@ -12,7 +12,7 @@ Dự án áp dụng phương pháp lập trình Linux nhúng chuyên sâu (Embed
 |:---:|---|---|:---:|
 | **1** | **Character Device Driver & IOCTL** | `/dev/mydev` (`step1_chardev`) | **✅ 100% Hoàn thành** |
 | **2** | **GPIO & Ngắt phần cứng (Wheel Speed Sensor)** | `/dev/speed_dev` (`step2_gpio_interrupt`) | **✅ 100% Hoàn thành** |
-| **3** | **Device Tree & Platform Driver** | Platform Driver & DTS Overlay (`step3_platform`) | ⏳ Sắp thực hiện |
+| **3** | **Device Tree & Platform Driver (Chuẩn Automotive)** | `speed_platform_driver` & `speed_sensor.dts` (`step3_platform`) | **✅ 100% Hoàn thành** |
 | **4** | **Giao tiếp UART với ESP32 Telematics** | Termios UART RX/TX Protocol (`step4_uart`) | ⏳ Sắp thực hiện |
 | **5** | **Giao diện Táp-lô LVGL trên Framebuffer & Touch** | DRM/KMS Framebuffer & `evdev` Touch | ⏳ Sắp thực hiện |
 
@@ -31,6 +31,11 @@ c:\prj-bbb\
 │   ├── speed_driver.c           # Driver ngắt GPIO 540, debounce ktime, atomic, poll
 │   ├── test_speed.c             # App táp-lô User Space ngủ 0% CPU, thức dậy khi có xung
 │   └── Makefile                 # Makefile tự động build và deploy scp -O sang BBB
+│
+├── step3_platform/              # BƯỚC 3: Device Tree & Platform Driver Chuẩn Công Nghiệp
+│   ├── speed_sensor.dts         # Bản vẽ phần cứng Device Tree (chân Bank 1, pin 28)
+│   ├── speed_platform_driver.c  # Platform Driver tự động probe() ghép đôi với Device Tree
+│   └── Makefile                 # Makefile biên dịch dtc -> .dtbo và driver -> .ko
 │
 ├── public/                      # Tài nguyên giao diện tĩnh & tài liệu bổ trợ
 ├── .gitignore                   # Cấu hình bỏ qua file rác và build artifacts
@@ -107,10 +112,6 @@ c:\prj-bbb\
 🚗 [BANH XE QUAY] Xung thu:   1 | Toc do mo phong:   1.5 km/h
 [ 2719.366600] speed_driver: [NGAT HOP LE] Da nhan 1 xung! Tong so xung = 2
 🚗 [BANH XE QUAY] Xung thu:   2 | Toc do mo phong:   3.0 km/h
-[ 2720.656728] speed_driver: [NGAT HOP LE] Da nhan 1 xung! Tong so xung = 3
-🚗 [BANH XE QUAY] Xung thu:   3 | Toc do mo phong:   4.5 km/h
-[ 2724.377387] speed_driver: [NGAT HOP LE] Da nhan 1 xung! Tong so xung = 4
-🚗 [BANH XE QUAY] Xung thu:   4 | Toc do mo phong:   6.0 km/h
 ...
 [ 2746.696591] speed_driver: [NGAT HOP LE] Da nhan 1 xung! Tong so xung = 14
 🚗 [BANH XE QUAY] Xung thu:  14 | Toc do mo phong:  21.0 km/h
@@ -120,49 +121,70 @@ c:\prj-bbb\
 
 ---
 
-## 🛠️ Hướng dẫn Biên dịch & Triển khai (Build & Deploy)
+## 🏗️ BƯỚC 3: Device Tree & Platform Driver (`step3_platform`)
 
-### 1. Môi trường Biên dịch Chéo (Cross-Compile trên Ubuntu VM)
-* **Toolchain:** ARM Buildroot Linux Toolchain
-  * Đường dẫn Toolchain: `~/bbb_workspace/buildroot/output/host/bin/arm-linux-`
-  * Cây mã nguồn Kernel: `~/bbb_workspace/buildroot/output/build/linux-6.6.58`
-* **Mạng giao tiếp:** USB Gadget Ethernet `usb0` (`192.168.7.1` $\longleftrightarrow$ `192.168.7.2`).
+### 1. Ý nghĩa & Kiến trúc Phân tách Phần cứng / Phần mềm
+* **Vấn đề của Bước 2:** Số chân `540` bị gán chết (hardcode) trong code C. Nếu đổi chân cắm hoặc mang driver sang bo mạch khác, driver bị sập.
+* **Giải pháp chuẩn Automotive:**
+  * **Device Tree (`speed_sensor.dts`):** File mô tả phần cứng độc lập. Khai báo nút `car_speed_sensor` với thuộc tính `speed-gpios = <&gpio1 28 1>;` và chuỗi nhận diện `compatible = "car-ivi,speed-sensor";`.
+  * **Platform Driver (`speed_platform_driver.c`):** Đăng ký bảng mai mối `speed_of_match[]`. Không hardcode số chân!
+  * **Cặp hàm `probe()` và `remove()`:** Khi Kernel tìm thấy nút phần cứng khớp chuỗi `compatible`, Kernel tự động gọi hàm `probe()`, cấp phát chân qua `gpiod_get(dev, "speed", ...)` và ánh xạ số ngắt qua `gpiod_to_irq()`.
 
-### 2. Các bước Biên dịch & Bắn file sang Board
+### 2. File Bản vẽ Phần cứng (`speed_sensor.dts`)
+```dts
+/dts-v1/;
+/plugin/;
 
-```bash
-# Vào thư mục driver Bước 2
-cd ~/car-ivi/speed_step2
-
-# Biên dịch cả Kernel Module (.ko) và App User Space
-make
-
-# Bắn file sang BeagleBone Black (dùng cờ -O cho Dropbear SSH)
-make deploy
-# hoặc: scp -O speed_driver.ko test_speed root@192.168.7.2:/root/
+/ {
+    fragment@0 {
+        target-path = "/";
+        __overlay__ {
+            car_speed_sensor {
+                compatible = "car-ivi,speed-sensor";
+                speed-gpios = <&gpio1 28 1>; /* Bank 1, chân 28 (P9_12), Active-Low */
+                status = "okay";
+            };
+        };
+    };
+};
 ```
 
-### 3. Chạy trên BeagleBone Black
-
+### 3. Ghép nối Cây thiết bị bằng `fdtoverlay`
 ```bash
-cd /root
+# Biên dịch DTS sang DTBO
+dtc -O dtb -o speed_sensor.dtbo -b 0 -@ speed_sensor.dts
 
-# Gỡ driver cũ (nếu có)
-rmmod speed_driver 2>/dev/null
+# Ghép vĩnh viễn vào Device Tree gốc am335x-boneblack.dtb
+fdtoverlay -i am335x-boneblack.dtb -o am335x-boneblack.dtb speed_sensor.dtbo
+```
 
-# Nạp driver mới
-insmod speed_driver.ko
+### 4. Kết quả Kiểm thử Thực tế trên BeagleBone Black
+```text
+# ls -d /sys/firmware/devicetree/base/car_speed_sensor
+/sys/firmware/devicetree/base/car_speed_sensor
 
-# Kiểm tra log Kernel
-dmesg | tail -n 5
-
-# Chạy ứng dụng Táp-lô đo tốc độ
-chmod +x /root/test_speed
-/root/test_speed
+# insmod speed_platform_driver.ko
+[   52.143670] speed_platform_driver: loading out-of-tree module taints kernel.
+[   52.151995] car_speed_sensor car_speed_sensor: speed_platform: Bat tay phan cung thanh cong! Bat dau khoi tao...
+[   52.165239] car_speed_sensor car_speed_sensor: Kernel tu cap phat IRQ so: 63 cho cam bien toc do
+[   52.174845] car_speed_sensor car_speed_sensor: Platform Driver da san sang bat xung!
 ```
 
 ---
 
-## 🔮 Kế hoạch Kế tiếp (Bước 3 & 4)
-* **Bước 3:** Chuyển đổi mã cứng GPIO sang kiến trúc **Device Tree & Platform Driver** chuẩn Linux mainline (`compatible`, `probe()`, `remove()`).
-* **Bước 4:** Xây dựng luồng giao tiếp nối tiếp UART chuẩn Automotive giữa vi điều khiển ESP32 (đóng vai trò ECU cảm biến) và BeagleBone Black (đóng vai trò Head Unit / Gateway).
+## 🔮 BƯỚC 4: Giao tiếp UART với ESP32 Telematics Gateway (Kế hoạch Chi tiết)
+
+### 1. Bối cảnh Hệ thống
+Trong ô tô thực tế, vi điều khiển **ESP32** đóng vai trò là **Body/Sensor ECU** (thu thập cảm biến bàn đạp ga TPS, góc lái, trạng thái phanh), còn **BeagleBone Black** đóng vai trò là **Head Unit / Telematics Gateway**. Hai bên giao tiếp tốc độ cao qua đường truyền nối tiếp UART chuẩn Automotive.
+
+### 2. Kế hoạch Thực hiện:
+1. **Phần cứng:**
+   * Sử dụng cổng **UART4** trên BeagleBone Black (Chân `P9_11` RX và `P9_13` TX).
+   * Nối chéo với chân UART của ESP32 (TX $\rightarrow$ RX, RX $\rightarrow$ TX, GND chung).
+2. **Firmware ESP32:**
+   * Đọc biến trở chân ga (ADC 0 - 3.3V).
+   * Đóng gói khung truyền dữ liệu thời gian thực (Packet Framing có Byte mở đầu `0xAA`, mã lệnh, dữ liệu tốc độ/vòng tua, và Checksum kiểm tra lỗi).
+3. **Chương trình C Linux trên BeagleBone Black (`car_telematics_uart.c`):**
+   * Sử dụng thư viện chuẩn POSIX **`termios`** điều khiển cổng `/dev/ttyS4` ở tốc độ `115200 8N1`.
+   * Chế độ Non-canonical (đọc dữ liệu theo từng byte không chờ Enter).
+   * Giải mã gói tin và xác thực Checksum, đưa dữ liệu vào hệ thống táp-lô.

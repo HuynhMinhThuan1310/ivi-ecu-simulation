@@ -1,0 +1,22 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    /* Ghép vào cây thiết bị gốc của BeagleBone Black */
+    fragment@0 {
+        target-path = "/";
+        __overlay__ {
+            /* Khai báo thiết bị cảm biến tốc độ xe */
+            car_speed_sensor {
+                // Chuỗi nhận diện khớp với Platform Driver
+                compatible = "car-ivi,speed-sensor";
+                
+                // Trỏ vào Bank GPIO 1, chân số 28 (P9_12)
+                // Cờ 1: GPIO_ACTIVE_LOW
+                speed-gpios = <&gpio1 28 1>;
+                
+                status = "okay";
+            };
+        };
+    };
+};
