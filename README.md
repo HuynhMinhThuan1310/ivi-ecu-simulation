@@ -37,7 +37,6 @@ c:\prj-bbb\
 │   ├── speed_platform_driver.c  # Platform Driver tự động probe() ghép đôi với Device Tree
 │   └── Makefile                 # Makefile biên dịch dtc -> .dtbo và driver -> .ko
 │
-├── public/                      # Tài nguyên giao diện tĩnh & tài liệu bổ trợ
 ├── .gitignore                   # Cấu hình bỏ qua file rác và build artifacts
 └── README.md                    # Tài liệu kỹ thuật chi tiết toàn bộ dự án
 ```
