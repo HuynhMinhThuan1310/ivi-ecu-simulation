@@ -53,9 +53,9 @@ Hệ thống được thiết kế theo kiến trúc chuẩn Automotive: phân t
 │   ├── touch_gui.c              # Render trực tiếp lên /dev/fb0 và đọc /dev/input/event1
 │   └── Makefile
 │
-├── map_navi_gui/                # Engine Bản đồ Định vị GPS Native C & Chống Xé hình
+├── map_navi_gui/                # Engine Bản đồ Định vị GPS Native C
 │   ├── get_map.py               # Script tải bản đồ OpenStreetMap & xuất raw RGB565 (1024x600)
-│   ├── map_navi.c               # Ứng dụng C Native Framebuffer + Double-Buffering + Touch Drag
+│   ├── map_navi.c               # Ứng dụng C Native Framebuffer & Cảm ứng Đa điểm
 │   └── Makefile                 # File build cross-compile ARM
 │
 ├── car-ivi/                     # Giao diện Buồng lái Web HMI & Bản đồ Định vị 3D
@@ -281,22 +281,27 @@ chmod +x touch_gui
 
 ---
 
-## 5. Module Bản Đồ Định Vị GPS Native C & Chống Xé Hình (`map_navi_gui`)
+## 5. Module Bản Đồ Định Vị GPS & Điều Hướng Buồng Lái (`map_navi_gui`)
 
-Engine dựng hình bản đồ số thực tế trực tiếp trên Framebuffer `/dev/fb0` kết hợp kỹ thuật **Bộ đệm kép (Double Buffering)** chống hiện tượng xé hình (Screen Tearing) và giải mã cảm ứng đa điểm bám ngón tay (Touch Drag).
+Engine dựng hình bản đồ số thực tế trực tiếp trên Framebuffer `/dev/fb0` kết hợp kỹ thuật Double-Buffering và điều khiển cảm ứng đa điểm bám ngón tay (Touch Drag).
+
+<div align="center">
+  <img src="ketqualan1.jpg" alt="Kết quả hiển thị bản đồ trên màn hình LCD 7-inch BeagleBone Black" width="480">
+  <p><em>Hình: Kết quả hiển thị bản đồ số thực tế trên màn hình LCD 7-inch BeagleBone Black</em></p>
+</div>
 
 ### Chi tiết Kỹ thuật
 * **Xử lý Dữ liệu Bản đồ Số (`get_map.py`):**
   * Tự động truy vấn định vị tọa độ GPS khu vực từ OpenStreetMap (OSM).
   * Ghép các mảnh tile bản đồ và cắt đúng độ phân giải màn hình LCD thực tế **1024 x 600**.
   * Chuyển đổi định dạng điểm ảnh sang nhị phân **RGB565 Little-Endian** raw (`map_1024x600.raw`, dung lượng chuẩn 1.228.800 bytes).
-* **Kiến trúc Đồ họa Nhúng Hai Bộ Đệm (Double Buffering):**
-  * Sử dụng bộ đệm hậu trường (`back_buffer` trong RAM) để phục hồi nền bản đồ, vẽ biểu tượng xe định vị (`draw_car`), nút bấm điều khiển (`draw_reset_button`).
-  * Đồng bộ chu kỳ làm mới với phần cứng quét màn hình ở tốc độ **40 FPS (25ms)**, triệt tiêu 100% hiện tượng sọc ngang/xước hình khi thao tác cảm ứng liên tục.
-* **Xử lý Tương tác Cảm ứng Không Chặn (Non-Blocking Touch):**
-  * Mở node thiết bị `/dev/input/event1` với cờ `O_NONBLOCK` để vòng lặp dựng hình không bị tắc nghẽn khi không có thao tác chạm.
-  * Tự động ánh xạ dải tọa độ thô của chip cảm ứng WCH (`MaxX=2048`, `MaxY=2048`) sang độ phân giải LCD (`1024x600`).
-  * Hỗ trợ kéo rê ngón tay (Touch Drag) điều hướng xe mượt mà và nút cảm ứng tròn góc trên để reset vị trí về tâm bản đồ.
+* **Kiến trúc Dựng hình Framebuffer & Double-Buffering:**
+  * Sử dụng bộ đệm hậu trường (`back_buffer` trong RAM) để phục hồi nền bản đồ, vẽ biểu tượng xe định vị (`draw_car`) và nút chức năng (`draw_reset_button`).
+  * Đồng bộ chu kỳ làm mới với phần cứng hiển thị ở tần số 40 FPS (chu kỳ 25ms), tối ưu tài nguyên cho CPU AM3358.
+* **Xử lý Cảm ứng Đa điểm (Linux Input Subsystem):**
+  * Mở node thiết bị `/dev/input/event1` ở chế độ non-blocking (`O_NONBLOCK`).
+  * Ánh xạ dải tọa độ thô của chip cảm ứng WCH (`MaxX=2048`, `MaxY=2048`) sang độ phân giải LCD (`1024x600`).
+  * Hỗ trợ kéo rê ngón tay (Touch Drag) điều hướng xe và nút cảm ứng reset vị trí về tâm bản đồ.
 
 ### Quy trình Thực thi
 **1. Tạo dữ liệu bản đồ trên Ubuntu VM:**
