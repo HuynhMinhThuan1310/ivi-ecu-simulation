@@ -1,30 +1,56 @@
-# Hướng dẫn Thực hành Lập trình Linux Nhúng trên BeagleBone Black & ESP32
+# In-Vehicle Infotainment & Telematics Gateway System
 
-Dự án thực hành lập trình nhúng từ mức thanh ghi, Kernel Driver đến ứng dụng User Space trên bo mạch **BeagleBone Black** (chip TI AM3358, nhân Linux Kernel 6.6.58 build từ Buildroot) và vi điều khiển **ESP32-C3**.
+Dự án phát triển hệ thống Gateway và bảng đồng hồ hiển thị thông tin buồng lái xe hơi (Cluster / Infotainment) trên nền tảng **BeagleBone Black** (chip TI AM3358, nhân Linux Kernel 6.6.58 build từ Buildroot) và vi điều khiển **ESP32-C3**.
+
+Hệ thống được thiết kế theo kiến trúc chuẩn Automotive: phân tách rõ ràng giữa phần cứng, tầng Kernel Driver thời gian thực và giao diện người dùng Native C, giao tiếp với các nút cảm biến qua mạng CAN Bus / UART.
 
 ---
 
-## Cấu trúc Thư mục
+## Kiến trúc Tổng thể Hệ thống
+
+```text
+[ CẢM BIẾN / CHÂN GA TPS ]
+           │
+           ▼
+[ ESP32-C3 (Sensor / Engine ECU) ]
+           │
+           ├── [ CAN Bus (125 kbps) / UART ] ── (Module TI SN65HVD230)
+           │
+           ▼
+[ BEAGLEBONE BLACK (Central Gateway & Cluster Unit) ]
+   ├── Linux Kernel 6.6.58 (Custom Buildroot)
+   ├── Platform Driver & Device Tree Overlay (speed_platform_driver)
+   ├── Character Device & IOCTL Interface (/dev/mydev, /dev/speed_dev)
+   ├── Native Framebuffer Engine (/dev/fb0 - RGB565 mmap)
+   └── Multi-touch Event Processing (/dev/input/event1 - hid-multitouch)
+           │
+           ▼
+[ MÀN HÌNH LCD 7-INCH & CẢM ỨNG ĐA ĐIỂM (Micro-HDMI / USB CTP) ]
+```
+
+---
+
+## Cấu trúc Mã nguồn
 
 ```text
 c:\prj-bbb\
-├── step1_chardev/               # Bài 1: Character Device Driver & IOCTL
-│   ├── hello.c                  # Mã nguồn driver /dev/mydev
-│   ├── test_ioctl.c             # Ứng dụng User Space test lệnh IOCTL
-│   └── Makefile                 # File build cross-compile
+├── step1_chardev/               # Module Character Device & Giao thức IOCTL
+│   ├── hello.c                  # Driver đăng ký cdev, VFS read/write/ioctl
+│   ├── test_ioctl.c             # Ứng dụng User Space cấu hình thiết bị qua IOCTL
+│   └── Makefile                 # File build cross-compile ARM
 │
-├── step2_gpio_interrupt/        # Bài 2: Ngắt GPIO & Đếm xung tốc độ xe
-│   ├── speed_driver.c           # Driver bắt ngắt sườn âm, debounce, waitqueue/poll
+├── step2_gpio_interrupt/        # Module Đo Tốc độ Xe bằng Ngắt Phần cứng
+│   ├── speed_driver.c           # Driver ngắt sườn âm GPIO 540, debounce ktime, poll
 │   ├── test_speed.c             # Ứng dụng đọc tốc độ thời gian thực (0% CPU)
 │   └── Makefile
 │
-├── step3_platform/              # Bài 3: Device Tree Overlay & Platform Driver
-│   ├── speed_sensor.dts         # File Device Tree mô tả chân phần cứng
-│   ├── speed_platform_driver.c  # Driver sử dụng hàm probe/remove chuẩn Linux
+├── step3_platform/              # Module Platform Driver & Device Tree Chuẩn Công nghiệp
+│   ├── speed_sensor.dts         # Bản vẽ phần cứng Device Tree (Bank 1, pin 28)
+│   ├── speed_platform_driver.c  # Driver sử dụng hàm probe/remove chuẩn Linux mainline
 │   └── Makefile
 │
-├── touch_gui/                   # Module Đồ họa Framebuffer & Cảm ứng đa điểm
-│   ├── touch_gui.c              # Vẽ trực tiếp lên /dev/fb0 và đọc /dev/input/event1
+├── touch_gui/                   # Engine Đồ họa Framebuffer & Cảm ứng Đa điểm
+│   ├── touch_gui.c              # Render trực tiếp lên /dev/fb0 và đọc /dev/input/event1
 │   └── Makefile
 │
 ├── .gitignore
@@ -33,45 +59,48 @@ c:\prj-bbb\
 
 ---
 
-## Môi trường & Thiết lập Chung
+## Thiết lập Môi trường Biên dịch (Build Environment)
 
-* **Máy ảo Ubuntu (VMware):** Dùng để biên dịch chéo (Cross-compile).
-  * Bộ công cụ biên dịch (Toolchain): `/home/thuan131004/bbb_workspace/buildroot/output/host/bin/arm-linux-`
-  * Cây mã nguồn Kernel: `/home/thuan131004/bbb_workspace/buildroot/output/build/linux-6.6.58`
-  * Công cụ biên dịch Device Tree: `dtc` và `fdtoverlay` nằm trong thư mục host của Buildroot.
-* **BeagleBone Black (BBB):**
-  * Kết nối máy tính qua cáp USB Mini (mạng `usb0`): IP board là `192.168.7.2`, IP máy tính là `192.168.7.1`.
-  * Đăng nhập console qua cổng nối tiếp UART debug (CH340 - 115200 baud, 8N1).
-  * Chuyển file từ Ubuntu sang board: Dùng lệnh `scp -O` (cờ `-O` bắt buộc cho SSH Dropbear thu nhỏ trên board).
+* **Toolchain Cross-Compile (Ubuntu VM):**
+  * Compiler: `arm-linux-gcc` (`arm-buildroot-linux-gnueabihf-`)
+  * Kernel Source Tree: `/home/thuan131004/bbb_workspace/buildroot/output/build/linux-6.6.58`
+  * Device Tree Compiler: `dtc` và `fdtoverlay`
+* **Giao thức triển khai:**
+  * Truyền nhận file sang board qua giao thức mạng USB Gadget Ethernet (`192.168.7.2`):
+    ```bash
+    scp -O <file> root@192.168.7.2:/root/
+    ```
+  * Debug qua cổng nối tiếp UART Serial (CH340 - 115200 baud, 8N1).
 
 ---
 
-## Bài 1: Character Device Driver & Test Lệnh IOCTL (`step1_chardev`)
+## 1. Module Giao diện Thiết bị Ký tự & IOCTL (`step1_chardev`)
 
-### 1. Mục đích
-* Tạo file thiết bị `/dev/mydev` bằng hàm `alloc_chrdev_region`, `cdev_init`, `cdev_add`, `class_create` và `device_create`.
-* Trao đổi dữ liệu an toàn giữa Kernel và User Space qua 2 hàm `copy_from_user` và `copy_to_user`.
-* Viết kênh cấu hình riêng qua giao thức **IOCTL** bằng 2 lệnh:
-  * `MYDEV_SET_VAL`: Ghi một giá trị nguyên từ User Space vào biến trong Kernel.
-  * `MYDEV_GET_VAL`: Đọc giá trị nguyên đó từ Kernel về User Space.
+Module cung cấp kênh giao tiếp cơ bản giữa không gian người dùng và Kernel Space, hỗ trợ đọc/ghi chuỗi byte và cấu hình thanh ghi thiết bị thông qua các mã lệnh IOCTL chuẩn POSIX.
 
-### 2. Các bước biên dịch và nạp chạy
+### Chi tiết Kỹ thuật
+* Đăng ký dynamic major/minor number qua `alloc_chrdev_region`, tạo node `/dev/mydev` tự động qua `class_create` và `device_create`.
+* Thực hiện sao chép an toàn vùng nhớ bằng `copy_to_user` và `copy_from_user`.
+* Định nghĩa tập lệnh IOCTL:
+  * `MYDEV_SET_VAL`: Ghi giá trị tham số vào Kernel buffer.
+  * `MYDEV_GET_VAL`: Đọc giá trị tham số từ Kernel buffer về ứng dụng.
 
-**Trên máy ảo Ubuntu:**
+### Biên dịch & Kiểm thử
+**Biên dịch trên host:**
 ```bash
 cd ~/car-ivi/step1_chardev
 make
-make deploy   # Bắn hello.ko và test_ioctl sang board qua scp -O
+make deploy
 ```
 
-**Trên BeagleBone Black:**
+**Thực thi trên BeagleBone Black:**
 ```bash
 cd /root
 insmod hello.ko
 ./test_ioctl
 ```
 
-### 3. Kết quả chạy thực tế
+**Kết quả kiểm tra:**
 ```text
 # insmod hello.ko
 [  880.192124] mydev: Khoi tao kem IOCTL thanh cong! Major = 238, Minor = 0
@@ -87,43 +116,41 @@ insmod hello.ko
 
 ---
 
-## Bài 2: Ngắt Phần Cứng GPIO Đo Tốc Độ Bánh Xe (`step2_gpio_interrupt`)
+## 2. Module Thu thập Vận tốc Xe qua Ngắt Phần cứng (`step2_gpio_interrupt`)
 
-### 1. Mục đích & Nguyên lý
-* Mô phỏng cảm biến tốc độ bánh xe bằng một sợi dây cắm (Jumper wire):
-  * Chân `P9_12` (GPIO 540) có trở kéo lên nội 3.3V.
-  * Mỗi khi quẹt đầu dây vào chân `P9_01` (GND) $\rightarrow$ Điện áp rơi từ 3.3V xuống 0V (Sườn âm - Falling Edge) $\rightarrow$ Kích hoạt ngắt phần cứng (ISR).
-* **Lọc rung cơ học (Debounce):** Dùng `ktime_get()` và `ktime_sub()`. Nếu 2 lần ngắt cách nhau $< 100\text{ms}$, coi là tia lửa nhiễu và bỏ qua (`return IRQ_HANDLED`).
-* **Đếm nguyên tử (`atomic_t`):** Dùng `atomic_inc()` để biến đếm xung an toàn trong môi trường ngắt.
-* **Cơ chế ru ngủ & đánh thức (`wait_queue` & `poll`):**
-  * Ứng dụng ngoài User Space gọi `poll()` sẽ rơi vào trạng thái ngủ sâu (**0% CPU**).
-  * Khi quẹt dây có xung ngắt, hàm ngắt gọi `wake_up_interruptible(&speed_waitqueue)` để đánh thức app dậy đọc số xung mới và in tốc độ ra màn hình.
+Module đóng vai trò là tầng tiếp nhận tín hiệu từ cảm biến xung bánh xe (Wheel Speed Sensor / Hall Sensor) với khả năng phản hồi thời gian thực tức thời mà không làm tiêu tốn tài nguyên xử lý của CPU.
 
-### 2. Sơ đồ cắm dây Header P9
-* Cắm 1 đầu dây vào chân **`P9_12`** (Hàng 6, cột phía trong bo mạch).
-* Đầu còn lại cầm trên tay, chạm nhẹ vào chân **`P9_01`** (GND - Hàng 1, cột ngoài cùng) rồi nhấc ra để tạo xung.
+### Chi tiết Kỹ thuật
+* **Phần cứng:** Chân `P9_12` (GPIO 540 trên Kernel 6.6) được kích hoạt điện trở kéo lên nội 3.3V. Mỗi xung quay của bánh xe tương ứng với một lần chạm mass `P9_01` (GND), tạo sườn âm (Falling Edge).
+* **Lọc nhiễu tiếp điểm (Debouncing):** Dùng đồng hồ nano-giây `ktime_get()`. Triệt tiêu mọi xung nhiễu nảy kim loại có chu kỳ $< 100\text{ms}$.
+* **Đồng bộ hóa đa luồng:** Dùng kiểu dữ liệu nguyên tử `atomic_t` cho biến đếm xung (`pulse_count`), ngăn chặn hiện tượng Race Condition giữa ngữ cảnh ngắt (ISR) và tiến trình đọc.
+* **Cơ chế Event-Driven (WaitQueue & Poll):** Ứng dụng User Space gọi `poll()` sẽ rơi vào trạng thái ngủ sâu (**0% CPU**). Khi xuất hiện ngắt, Kernel đánh thức ứng dụng qua `wake_up_interruptible(&speed_waitqueue)` để đọc và tính toán vận tốc.
 
-### 3. Các bước biên dịch và nạp chạy
+### Sơ đồ Đấu nối Chân (Header P9)
+```text
+Header P9 (BeagleBone Black)
+Row 1:  [ P9_01 ] (GND)    [ P9_02 ] (GND)
+Row 6:  [ P9_11 ]          [ P9_12 ] (GPIO 540 - Pulse Input)
+```
 
-**Trên máy ảo Ubuntu:**
+### Biên dịch & Kiểm thử
+**Biên dịch trên host:**
 ```bash
 cd ~/car-ivi/step2_gpio_interrupt
 make
 make deploy
 ```
 
-**Trên BeagleBone Black:**
+**Thực thi trên BeagleBone Black:**
 ```bash
 cd /root
 rmmod speed_driver 2>/dev/null
 insmod speed_driver.ko
-
-# Chạy app đo tốc độ
 chmod +x test_speed
 ./test_speed
 ```
 
-### 4. Kết quả chạy thực tế
+**Kết quả kiểm tra:**
 ```text
 =========================================
    CAR-IVI SPEEDOMETER TEST (STEP 2)
@@ -140,18 +167,16 @@ chmod +x test_speed
 
 ---
 
-## Bài 3: Tách Phần Cứng bằng Device Tree & Platform Driver (`step3_platform`)
+## 3. Module Tích hợp Device Tree & Platform Driver (`step3_platform`)
 
-### 1. Tại sao cần bài này?
-* Ở Bài 2, số chân `540` bị gán cứng (`#define GPIO_SPEED_PIN 540`) trong file C. Nếu đổi sang chân khác ta lại phải sửa code C và biên dịch lại driver.
-* Ở Bài 3, ta tách hoàn toàn phần cứng ra file riêng:
-  * **File Device Tree (`speed_sensor.dts`):** Khai báo cảm biến cắm ở Bank 1 chân 28 (`<&gpio1 28 1>`) và đặt tên chuỗi nhận diện là `compatible = "car-ivi,speed-sensor";`.
-  * **File Driver C (`speed_platform_driver.c`):** Đăng ký bảng `of_device_id`. Driver không cần biết số chân là bao nhiêu!
-  * Khi Linux thấy phần cứng trong Device Tree khớp tên với Driver, Linux tự động gọi hàm **`probe()`**. Trong hàm `probe()`, ta dùng hàm `gpiod_get(dev, "speed", ...)` để Kernel tự đọc Device Tree và cấp phát chân GPIO + số ngắt IRQ tương ứng.
+Chuyển đổi toàn bộ driver sang kiến trúc **Platform Driver** chuẩn Linux mainline nhằm loại bỏ việc gán cứng chân phần cứng trong mã nguồn C, cho phép driver tái sử dụng linh hoạt trên nhiều biến thể phần cứng khác nhau.
 
-### 2. Các bước thực hiện chi tiết
+### Chi tiết Kỹ thuật
+* **Device Tree Overlay (`speed_sensor.dts`):** Mô tả thiết bị độc lập với chuỗi định danh `compatible = "car-ivi,speed-sensor";` và chân phần cứng `speed-gpios = <&gpio1 28 1>;` (Bank 1, pin 28, Active-Low).
+* **Ghép nối DTB gốc:** Sử dụng công cụ `fdtoverlay` hợp nhất file `.dtbo` trực tiếp vào bản vẽ phần cứng `am335x-boneblack.dtb` của hệ thống.
+* **Platform Driver Binding:** Driver đăng ký bảng `of_device_id`. Khi Kernel nạp Device Tree và phát hiện nút thiết bị tương ứng, hàm **`probe()`** tự động được kích hoạt để bóc tách tài nguyên qua `gpiod_get(dev, "speed", ...)` và ánh xạ số hiệu ngắt qua `gpiod_to_irq()`.
 
-#### Bước A: Viết file `speed_sensor.dts` và biên dịch sang `.dtbo` (Trên Ubuntu)
+### Cấu hình Device Tree
 ```dts
 /dts-v1/;
 /plugin/;
@@ -162,85 +187,81 @@ chmod +x test_speed
         __overlay__ {
             car_speed_sensor {
                 compatible = "car-ivi,speed-sensor";
-                speed-gpios = <&gpio1 28 1>; /* Bank 1, pin 28 (chân P9_12), Active-Low */
+                speed-gpios = <&gpio1 28 1>;
                 status = "okay";
             };
         };
     };
 };
 ```
-Biên dịch ra file nhị phân:
-```bash
-~/bbb_workspace/buildroot/output/host/bin/dtc -O dtb -o speed_sensor.dtbo -b 0 -@ speed_sensor.dts
-```
 
-#### Bước B: Ghép file overlay vào cây thiết bị gốc của BeagleBone Black
-Thay vì can thiệp vào U-Boot phức tạp, ta dùng công cụ `fdtoverlay` trên Ubuntu ghép trực tiếp vào file `.dtb` gốc:
+### Quy trình Tích hợp & Kiểm thử
+**1. Biên dịch và ghép DTB trên host:**
 ```bash
-# Lấy file DTB gốc ra
+cd ~/car-ivi/step3_platform
+make
+
+# Ghép node vào DTB gốc
 cp ~/bbb_workspace/buildroot/output/images/am335x-boneblack.dtb .
-
-# Ghép nút cảm biến vào DTB gốc
 ~/bbb_workspace/buildroot/output/host/bin/fdtoverlay -i am335x-boneblack.dtb -o am335x-boneblack.dtb speed_sensor.dtbo
 ```
 
-#### Bước C: Nạp file DTB mới vào phân vùng Boot và khởi động lại board
-1. Trên BeagleBone Black:
-   ```bash
-   mkdir -p /mnt/boot && mount /dev/mmcblk0p1 /mnt/boot
-   ```
-2. Trên máy ảo Ubuntu:
-   ```bash
-   scp -O am335x-boneblack.dtb root@192.168.7.2:/mnt/boot/
-   ```
-3. Trên BeagleBone Black:
-   ```bash
-   sync && umount /mnt/boot && reboot
-   ```
-
-#### Bước D: Kiểm tra sau khi khởi động lại
-Kiểm tra xem Kernel đã nhận nút phần cứng chưa:
+**2. Cập nhật phân vùng Boot trên BeagleBone Black:**
 ```bash
-ls -d /sys/firmware/devicetree/base/car_speed_sensor
-# Kết quả in ra đúng đường dẫn trên là thành công!
+# Trên board: Mount phân vùng boot
+mkdir -p /mnt/boot && mount /dev/mmcblk0p1 /mnt/boot
+
+# Trên host: Copy file DTB mới sang board
+scp -O am335x-boneblack.dtb root@192.168.7.2:/mnt/boot/
+
+# Trên board: Sync và khởi động lại
+sync && umount /mnt/boot && reboot
 ```
 
-Nạp module Platform Driver:
+**3. Xác thực liên kết Platform Driver:**
 ```bash
-cd /root
+# Kiểm tra node thiết bị trong Device Tree
+ls -d /sys/firmware/devicetree/base/car_speed_sensor
+
+# Nạp module driver
 insmod speed_platform_driver.ko
 dmesg | tail -n 5
 ```
 
-### 3. Kết quả chạy thực tế
+**Kết quả xác thực:**
 ```text
 [   52.143670] speed_platform_driver: loading out-of-tree module taints kernel.
 [   52.151995] car_speed_sensor car_speed_sensor: speed_platform: Bat tay phan cung thanh cong! Bat dau khoi tao...
 [   52.165239] car_speed_sensor car_speed_sensor: Kernel tu cap phat IRQ so: 63 cho cam bien toc do
 [   52.174845] car_speed_sensor car_speed_sensor: Platform Driver da san sang bat xung!
 ```
-*Driver đã tự động ghép đôi (probe), tự nhận chân và ngắt IRQ 63 mà không cần gán cứng bất kỳ số chân nào trong code C!*
 
 ---
 
-## Module Đồ Họa Framebuffer & Cảm Ứng Đa Điểm (`touch_gui`)
+## 4. Module Đồ Họa Framebuffer & Xử lý Cảm Ứng Đa Điểm (`touch_gui`)
 
-### 1. Mục đích
-* Trực tiếp vẽ giao diện lên màn hình LCD qua cổng Micro-HDMI bằng cách ánh xạ bộ nhớ Framebuffer **`/dev/fb0`** qua hàm `mmap()`, sử dụng định dạng màu **RGB565**.
-* Đọc tọa độ chạm ngón tay từ chip cảm ứng qua Linux Input Event **`/dev/input/event1`** (`hid-multitouch`).
-* Xử lý va chạm tọa độ (Hit-Test):
-  * Ở góc trên bên phải có nút **CLEAR** màu đỏ viền trắng. Khi ngón tay bấm trúng nút này, màn hình được xóa sạch.
-  * Khi kéo ngón tay ở các vùng khác, màn hình vẽ nét cọ màu vàng bám theo đầu ngón tay.
+Engine dựng hình đồ họa Native C trực tiếp trên bộ nhớ đệm màn hình (Framebuffer) kết hợp giải mã luồng sự kiện cảm ứng đa điểm phục vụ giao diện buồng lái xe hơi.
 
-### 2. Cách biên dịch và chạy
-**Trên máy ảo Ubuntu:**
+### Chi tiết Kỹ thuật
+* **Điều khiển Framebuffer `/dev/fb0`:**
+  * Ánh xạ trực tiếp video RAM của chip phát HDMI NXP TDA19988 vào không gian địa chỉ tiến trình bằng `mmap()`.
+  * Định dạng điểm ảnh **RGB565** (`uint16_t` / pixel), tối ưu tốc độ ghi dữ liệu.
+  * Xây dựng bộ hàm nguyên thủy: vẽ điểm ảnh (`draw_pixel`), vẽ hình chữ nhật (`draw_rect`), vẽ nét cọ (`draw_brush`), xóa màn hình (`clear_screen`).
+* **Giải mã Cảm ứng qua Linux Input Subsystem (`/dev/input/event1`):**
+  * Nhận diện chip điều khiển cảm ứng đa điểm `wch.cn USB2IIC_CTP_CONTROL` qua driver `hid-multitouch`.
+  * Thu thập dải tọa độ thô qua `ioctl(EVIOCGABS)` và tự động chuẩn hóa co giãn (mapping) theo độ phân giải màn hình (`vinfo.xres`, `vinfo.yres`).
+* **Xử lý Tương tác (Hit-Test Collision):**
+  * Tích hợp nút bấm chức năng **CLEAR** ở góc màn hình. Thuật toán kiểm tra va chạm hình học xác định thao tác chạm: nếu chạm trong phạm vi nút $\rightarrow$ xóa toàn bộ màn hình; nếu chạm ngoài phạm vi $\rightarrow$ vẽ nét cọ tương tác bám theo ngón tay.
+
+### Biên dịch & Thực thi
+**Biên dịch trên host:**
 ```bash
 cd ~/car-ivi/touch_gui
 make
 make deploy
 ```
 
-**Trên BeagleBone Black:**
+**Thực thi trên BeagleBone Black:**
 ```bash
 cd /root
 chmod +x touch_gui
@@ -249,19 +270,24 @@ chmod +x touch_gui
 
 ---
 
-## Bài 4 (Đang phát triển): Giao tiếp Mạng CAN Bus (TWAI) giữa ESP32-C3 và BeagleBone Black
+## 5. Module Mạng CAN Bus Ô tô / TWAI Gateway (`step4_can_twai` - Đang triển khai)
 
-### 1. Sơ đồ phần cứng với 2 Module WCMCU-230 (chip TI SN65HVD230 3.3V)
-* **Bên ESP32-C3 (Bộ điều khiển động cơ & chân ga):**
-  * Biến trở chân ga: Chân giữa nối `GPIO 2` (ADC), 2 chân còn lại nối `3V3` và `GND`.
+Xây dựng mạng truyền thông công nghiệp CAN 2.0B kết nối giữa ECU động cơ (ESP32-C3) và Gateway trung tâm (BeagleBone Black) thông qua 2 module thu phát TI SN65HVD230 (WCMCU-230).
+
+### Sơ đồ Kết nối Phần cứng
+* **Nút ESP32-C3 (Engine / Sensor ECU):**
+  * Biến trở chân ga (Throttle Position Sensor): Nối vào kênh ADC `GPIO 2`, cấp nguồn `3V3` và `GND`.
   * Module WCMCU-230 #1: Chân `CTX` nối `GPIO 5`, `CRX` nối `GPIO 6`, cấp nguồn `3V3` và `GND`.
-* **Bên BeagleBone Black (Màn hình táp-lô & Gateway):**
+* **Nút BeagleBone Black (Central Gateway):**
   * Module WCMCU-230 #2: Chân `CTX` nối `P9_26` (DCAN1 TX), `CRX` nối `P9_24` (DCAN1 RX), cấp nguồn `P9_03` (3.3V) và `P9_01` (GND).
-* **Đường truyền CAN giữa 2 module:**
-  * Chân `CAN_H` của module 1 nối `CAN_H` của module 2.
-  * Chân `CAN_L` của module 1 nối `CAN_L` của module 2.
-  * Nối chung `GND` giữa 2 board.
+* **Đường truyền Bus CAN:**
+  * Dây `CAN_H` nối `CAN_H`, dây `CAN_L` nối `CAN_L`, nối chung đường mass `GND`.
 
-### 2. Nguyên lý hoạt động
-* ESP32-C3 dùng bộ điều khiển phần cứng TWAI (chuẩn CAN 2.0B) viết bằng **ESP-IDF**, đọc điện áp biến trở rồi đóng gói thành bản tin CAN ID `0x100` (8 bytes dữ liệu: chân ga, vận tốc, vòng tua RPM, cấp số...) bắn với tốc độ **125 kbps** với chu kỳ 50ms.
-* BeagleBone Black dùng SocketCAN trong Linux (`can0`), nhận bản tin qua Socket C RAW và cập nhật trực tiếp lên giao diện màn hình.
+### Cơ chế Hoạt động
+1. **Phía ESP32-C3 (ESP-IDF Firmware):**
+   * Sử dụng driver phần cứng TWAI của ESP-IDF cấu hình ở tốc độ **125 kbps**.
+   * Đọc tỷ lệ bàn đạp ga, tính toán vận tốc mô phỏng (0 - 200 km/h), vòng tua máy RPM (800 - 6500 RPM) và cấp số truyền động.
+   * Đóng gói bản tin CAN chuẩn 8-byte với định danh `CAN ID = 0x100` và phát chu kỳ 50ms (20 Hz).
+2. **Phía BeagleBone Black (SocketCAN / C Client):**
+   * Kích hoạt giao diện mạng `can0` trong Linux Kernel.
+   * Ứng dụng C mở RAW Socket (`PF_CAN`, `SOCK_RAW`) tiếp nhận khung tin và cập nhật dữ liệu lên hệ thống hiển thị.
