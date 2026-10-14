@@ -53,6 +53,12 @@ c:\prj-bbb\
 │   ├── touch_gui.c              # Render trực tiếp lên /dev/fb0 và đọc /dev/input/event1
 │   └── Makefile
 │
+├── car-ivi/                     # Giao diện Buồng lái Web HMI & Bản đồ Định vị 3D
+│   ├── map-module/              # Ứng dụng Leaflet GPS Map & Three.js 3D Car Rendering
+│   └── server.js                # WebSocket & Telematics Gateway Server
+│
+├── bientro/                     # Firmware ESP32-C3 đọc ADC chân ga TPS (ESP-IDF)
+├── bridge_server.py             # Server cầu nối telemetry giữa CAN/UART và HMI
 ├── .gitignore
 └── README.md
 ```

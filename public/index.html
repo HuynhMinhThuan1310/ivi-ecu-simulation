@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automotive Digital Cockpit | BeagleBone Black</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="mode-comfort">
+  <div class="cockpit-container">
+    
+    <!-- TOP STATUS BAR -->
+    <header class="top-bar">
+      <div class="brand">
+        <span class="brand-icon">⚡</span>
+        <span class="brand-name">CYBER-EV</span>
+        <span class="ecu-tag">BBB-AM335x</span>
+      </div>
+      <div class="gear-selector">
+        <span class="gear-badge" id="gear-P">P</span>
+        <span class="gear-badge" id="gear-R">R</span>
+        <span class="gear-badge" id="gear-N">N</span>
+        <span class="gear-badge active" id="gear-D">D</span>
+      </div>
+      <div class="system-time">
+        <span id="clock">12:00</span>
+        <span class="connection-status online" id="connStatus">CONNECTED</span>
+      </div>
+    </header>
+
+    <!-- MAIN DASHBOARD -->
+    <main class="dashboard-grid">
+      
+      <!-- LEFT CLUSTER: BATTERY & RANGE -->
+      <section class="panel panel-left">
+        <div class="panel-header">ENERGY & RANGE</div>
+        <div class="battery-card">
+          <div class="battery-gauge">
+            <div class="battery-level-bar" id="batteryBar" style="width: 88%;"></div>
+          </div>
+          <div class="battery-info">
+            <div class="stat-group">
+              <span class="stat-value" id="socVal">88</span>
+              <span class="stat-unit">%</span>
+              <span class="stat-label">BATTERY</span>
+            </div>
+            <div class="stat-group">
+              <span class="stat-value" id="rangeVal">395</span>
+              <span class="stat-unit">km</span>
+              <span class="stat-label">EST. RANGE</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="energy-metrics">
+          <div class="metric-box">
+            <span class="metric-label">POWER FLOW</span>
+            <span class="metric-val" id="powerVal">+12.4 kW</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">BATT TEMP</span>
+            <span class="metric-val" id="tempVal">29 °C</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">ODOMETER</span>
+            <span class="metric-val" id="odoVal">12,450 km</span>
+          </div>
+        </div>
+
+        <div class="drive-mode-card">
+          <div class="panel-header">DRIVE MODE</div>
+          <div class="mode-buttons">
+            <button class="btn-mode" id="btnModeEco" onclick="sendCmd('drive_mode', 'ECO')">ECO</button>
+            <button class="btn-mode active" id="btnModeComfort" onclick="sendCmd('drive_mode', 'COMFORT')">COMFORT</button>
+            <button class="btn-mode" id="btnModeSport" onclick="sendCmd('drive_mode', 'SPORT')">SPORT</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- CENTER CLUSTER: SPEEDOMETER & TACHOMETER CANVAS -->
+      <section class="panel panel-center">
+        <!-- TURN SIGNALS -->
+        <div class="turn-signals">
+          <div class="turn-arrow left" id="turnLeft">◀</div>
+          <div class="lock-indicator" id="lockIndicator">🔒 LOCKED</div>
+          <div class="turn-arrow right" id="turnRight">▶</div>
+        </div>
+
+        <!-- 60 FPS CANVAS GAUGE -->
+        <div class="gauge-wrapper">
+          <canvas id="gaugeCanvas" width="460" height="380"></canvas>
+          <div class="digital-readout">
+            <span class="speed-num" id="speedDisplay">0</span>
+            <span class="speed-unit">KM / H</span>
+            <span class="rpm-readout" id="rpmDisplay">800 RPM</span>
+          </div>
+        </div>
+
+        <!-- THROTTLE BAR -->
+        <div class="throttle-container">
+          <span class="throttle-label">PWR</span>
+          <div class="throttle-bar-bg">
+            <div class="throttle-bar-fill" id="throttleFill" style="width: 0%;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT CLUSTER: VEHICLE 3D/TOP SILHOUETTE & DOORS -->
+      <section class="panel panel-right">
+        <div class="panel-header">VEHICLE STATUS</div>
+        <div class="car-silhouette-wrapper">
+          
+          <!-- TOP-DOWN CAR SVG -->
+          <svg class="car-svg" viewBox="0 0 200 360" xmlns="http://www.w3.org/2000/svg">
+            <!-- HEADLIGHT BEAMS -->
+            <polygon class="headlight-beam" id="lightBeam" points="40,20 0,-60 200,-60 160,20" />
+            
+            <!-- CAR BODY -->
+            <rect class="car-chassis" x="40" y="30" width="120" height="300" rx="40" />
+            <rect class="car-roof" x="52" y="100" width="96" height="150" rx="20" />
+            <polygon class="car-windshield" points="56,105 144,105 136,135 64,135" />
+            <polygon class="car-rear-window" points="64,225 136,225 144,245 56,245" />
+            
+            <!-- WHEELS -->
+            <rect class="car-wheel" x="25" y="65" width="12" height="40" rx="5" />
+            <rect class="car-wheel" x="163" y="65" width="12" height="40" rx="5" />
+            <rect class="car-wheel" x="25" y="250" width="12" height="40" rx="5" />
+            <rect class="car-wheel" x="163" y="250" width="12" height="40" rx="5" />
+
+            <!-- 4 INTERACTIVE DOORS -->
+            <line class="car-door" id="doorFL" x1="40" y1="95" x2="40" y2="165" onclick="sendCmd('door', 'fl')" />
+            <line class="car-door" id="doorFR" x1="160" y1="95" x2="160" y2="165" onclick="sendCmd('door', 'fr')" />
+            <line class="car-door" id="doorRL" x1="40" y1="180" x2="40" y2="245" onclick="sendCmd('door', 'rl')" />
+            <line class="car-door" id="doorRR" x1="160" y1="180" x2="160" y2="245" onclick="sendCmd('door', 'rr')" />
+          </svg>
+        </div>
+
+        <div class="door-status-text" id="doorStatusText">All Doors Closed</div>
+
+        <!-- TELEMATICS QUICK CONTROLS -->
+        <div class="control-grid">
+          <button class="btn-ctrl" id="btnLock" onclick="sendCmd('lock')">
+            <span class="btn-icon">🔐</span> Lock
+          </button>
+          <button class="btn-ctrl" id="btnHazard" onclick="sendCmd('hazard')">
+            <span class="btn-icon">⚠️</span> Hazard
+          </button>
+          <button class="btn-ctrl" id="btnLight" onclick="sendCmd('headlight')">
+            <span class="btn-icon">💡</span> Lights
+          </button>
+          <button class="btn-ctrl" id="btnGearToggle" onclick="toggleGear()">
+            <span class="btn-icon">🕹️</span> Shift
+          </button>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- FOOTER: REAL-TIME CAN BUS INSPECTOR -->
+    <footer class="can-inspector">
+      <div class="can-header">
+        <span class="can-title">⚡ SOCKETCAN LIVE BUS MONITOR (BeagleBone Black vcan0)</span>
+        <span class="can-rate" id="canRate">45 frames/sec</span>
+      </div>
+      <div class="can-stream" id="canStream">
+        <!-- CAN frames will populate here -->
+        <div class="can-row">[CAN 0x100] Waiting for telemetry stream from BBB...</div>
+      </div>
+    </footer>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
