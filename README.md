@@ -37,6 +37,10 @@ c:\prj-bbb\
 │   ├── speed_platform_driver.c  # Platform Driver tự động probe() ghép đôi với Device Tree
 │   └── Makefile                 # Makefile biên dịch dtc -> .dtbo và driver -> .ko
 │
+├── touch_gui/                   # ĐỒ HỌA NATIVE & CẢM ỨNG (Framebuffer & Touch)
+│   ├── touch_gui.c              # Trực tiếp thao tác /dev/fb0 (mmap RGB565) & /dev/input/event1
+│   └── Makefile                 # Makefile build và deploy touch_gui lên BeagleBone Black
+│
 ├── .gitignore                   # Cấu hình bỏ qua file rác và build artifacts
 └── README.md                    # Tài liệu kỹ thuật chi tiết toàn bộ dự án
 ```
@@ -168,6 +172,22 @@ fdtoverlay -i am335x-boneblack.dtb -o am335x-boneblack.dtb speed_sensor.dtbo
 [   52.165239] car_speed_sensor car_speed_sensor: Kernel tu cap phat IRQ so: 63 cho cam bien toc do
 [   52.174845] car_speed_sensor car_speed_sensor: Platform Driver da san sang bat xung!
 ```
+
+---
+
+## 🎨 MODULE ĐỒ HỌA NATIVE & CẢM ỨNG (`touch_gui`)
+
+### 1. Mục tiêu & Kiến trúc Low-level
+* **Trực tiếp điều khiển Framebuffer `/dev/fb0`:**
+  * Sử dụng `mmap()` ánh xạ vùng nhớ video RAM của chip NXP TDA19988 (Micro-HDMI) sang không gian địa chỉ tiến trình.
+  * Định dạng màu **RGB565** (`uint16_t` cho mỗi điểm ảnh pixel) tối ưu tốc độ render đồ họa phần cứng.
+  * Xây dựng engine dựng hình nguyên thủy bằng C thuần: vẽ điểm (`draw_pixel`), vẽ hình chữ nhật (`draw_rect`), vẽ nét cọ cảm ứng (`draw_brush`), xóa toàn bộ màn hình (`clear_screen`).
+* **Đọc sự kiện Cảm ứng đa điểm qua Linux Input Subsystem (`/dev/input/event1`):**
+  * Đọc trực tiếp cấu trúc `struct input_event` từ driver `hid-multitouch` (chip cảm ứng `wch.cn USB2IIC_CTP_CONTROL`).
+  * Sử dụng `ioctl(EVIOCGABS)` để đọc dải tọa độ thô (`touch_max_x`, `touch_max_y`), sau đó co giãn (mapping) chuẩn xác sang độ phân giải màn hình (`vinfo.xres`, `vinfo.yres`).
+* **Xử lý Tương tác Nút bấm Thời gian thực (Hit-Test Collision):**
+  * Thiết kế nút bấm **CLEAR** ở góc trên bên phải màn hình (nền Đỏ, viền Trắng, dấu X).
+  * Thuật toán kiểm tra va chạm: Khi tọa độ ngón tay chạm vào phạm vi nút CLEAR $\rightarrow$ kích hoạt xóa trắng màn hình và vẽ lại UI; khi vẽ ra ngoài nút $\rightarrow$ vẽ nét cọ màu vàng rực bám theo đầu ngón tay.
 
 ---
 
