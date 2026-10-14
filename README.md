@@ -2,8 +2,6 @@
 
 Dự án thực hành lập trình nhúng từ mức thanh ghi, Kernel Driver đến ứng dụng User Space trên bo mạch **BeagleBone Black** (chip TI AM3358, nhân Linux Kernel 6.6.58 build từ Buildroot) và vi điều khiển **ESP32-C3**.
 
-Tài liệu này ghi chép lại các bước thực hiện chi tiết, sơ đồ đấu nối, câu lệnh biên dịch và kết quả kiểm tra thực tế cho từng bài lab.
-
 ---
 
 ## Cấu trúc Thư mục
