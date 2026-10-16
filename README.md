@@ -76,8 +76,8 @@ Hệ thống được thiết kế theo kiến trúc chuẩn Automotive: phân t
 │   └── server.js                # WebSocket & Telematics Gateway Server
 │
 ├── bientro/                     # Baseline Firmware đọc ADC chân ga ESP-IDF
-├── bridge_server.py             # Server cầu nối telemetry giữa CAN/UART và HMI
-├── ketqualan1.jpg               # Ảnh chụp kết quả màn hình phần cứng LCD thực tế
+├── ketqualan1.jpg               # Ảnh chụp kết quả bản đồ số Framebuffer trên LCD 7-inch
+├── ketqualan2.jpg               # Ảnh chụp thực tế tích hợp cụm đồng hồ tốc độ CAN Bus trên LCD 7-inch
 ├── .gitignore
 └── README.md
 ```
@@ -300,8 +300,12 @@ chmod +x touch_gui
 Engine dựng hình bản đồ số thực tế trực tiếp trên Framebuffer `/dev/fb0` kết hợp kỹ thuật Double-Buffering và điều khiển cảm ứng đa điểm bám ngón tay (Touch Drag).
 
 <div align="center">
-  <img src="ketqualan1.jpg" alt="Kết quả hiển thị bản đồ trên màn hình LCD 7-inch BeagleBone Black" width="480">
-  <p><em>Hình: Kết quả hiển thị bản đồ số thực tế trên màn hình LCD 7-inch BeagleBone Black</em></p>
+
+| Bản đồ Định vị Framebuffer & Cảm ứng (`ketqualan1.jpg`) | Tích hợp Cụm Đồng hồ Tốc độ CAN Telematics (`ketqualan2.jpg`) |
+|:---:|:---:|
+| <img src="ketqualan1.jpg" width="400" alt="Bản đồ cơ bản"> | <img src="ketqualan2.jpg" width="400" alt="Tích hợp HUD CAN"> |
+| *Dựng hình OSM 1024x600, Double-buffering & Touch Drag* | *Đồng hồ LED 7 đoạn (76 KM/H, 2966 RPM, Số D) từ CAN Bus 125 kbps* |
+
 </div>
 
 ### Chi tiết Kỹ thuật
