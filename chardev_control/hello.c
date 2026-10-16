@@ -15,7 +15,7 @@
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Thuan");
-MODULE_DESCRIPTION("Character Device Driver with IOCTL - Step 1");
+MODULE_DESCRIPTION("Character Device Driver with IOCTL Control");
 
 static dev_t dev_num;
 static struct cdev my_cdev;

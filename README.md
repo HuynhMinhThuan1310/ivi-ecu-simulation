@@ -34,17 +34,17 @@ Hệ thống được thiết kế theo kiến trúc chuẩn Automotive: phân t
 
 ```text
 ~/car-ivi/                       # Không gian làm việc trên Ubuntu VM
-├── step1_chardev/               # Module Character Device & Giao thức IOCTL
+├── chardev_control/             # Module Character Device & Giao thức IOCTL
 │   ├── hello.c                  # Driver đăng ký cdev, VFS read/write/ioctl
 │   ├── test_ioctl.c             # Ứng dụng User Space cấu hình thiết bị qua IOCTL
 │   └── Makefile                 # File build cross-compile ARM
 │
-├── step2_gpio_interrupt/        # Module Đo Tốc độ Xe bằng Ngắt Phần cứng
+├── wheel_speed_sensor/          # Module Đo Tốc độ Xe bằng Ngắt Phần cứng
 │   ├── speed_driver.c           # Driver ngắt sườn âm GPIO 540, debounce ktime, poll
 │   ├── test_speed.c             # Ứng dụng đọc tốc độ thời gian thực (0% CPU)
 │   └── Makefile
 │
-├── step3_platform/              # Module Platform Driver & Device Tree Chuẩn Công nghiệp
+├── platform_driver/             # Module Platform Driver & Device Tree Chuẩn Công nghiệp
 │   ├── speed_sensor.dts         # Bản vẽ phần cứng Device Tree (Bank 1, pin 28)
 │   ├── speed_platform_driver.c  # Driver sử dụng hàm probe/remove chuẩn Linux mainline
 │   └── Makefile
@@ -53,17 +53,31 @@ Hệ thống được thiết kế theo kiến trúc chuẩn Automotive: phân t
 │   ├── touch_gui.c              # Render trực tiếp lên /dev/fb0 và đọc /dev/input/event1
 │   └── Makefile
 │
-├── map_navi_gui/                # Engine Bản đồ Định vị GPS Native C
+├── map_navi_gui/                # Engine Bản đồ Định vị GPS & HUD Tốc độ LED 7 Đoạn
 │   ├── get_map.py               # Script tải bản đồ OpenStreetMap & xuất raw RGB565 (1024x600)
-│   ├── map_navi.c               # Ứng dụng C Native Framebuffer & Cảm ứng Đa điểm
+│   ├── map_navi.c               # Ứng dụng C Framebuffer, SocketCAN, 7-Segment HUD & Touch
 │   └── Makefile                 # File build cross-compile ARM
+│
+├── can_gateway/                 # Gateway Trung tâm SocketCAN & Dashboard Buồng lái (BeagleBone Black)
+│   ├── can_receiver.c           # Ứng dụng C SocketCAN Non-blocking & Digital Cockpit
+│   ├── dcan1.dts                # Device Tree Overlay kích hoạt DCAN1 (P9_24, P9_26)
+│   └── Makefile                 # File build cross-compile ARM
+│
+├── can_sender/                  # Firmware ECU Động cơ & Cảm biến Chân ga TPS (ESP32-C3)
+│   ├── main/
+│   │   ├── throttle_sensor.h    # Module đọc cảm biến bàn đạp ga ADC GPIO 2
+│   │   ├── throttle_sensor.c
+│   │   ├── main.c               # Điều phối phát CAN 125 kbps qua TWAI driver
+│   │   └── CMakeLists.txt
+│   └── CMakeLists.txt
 │
 ├── car-ivi/                     # Giao diện Buồng lái Web HMI & Bản đồ Định vị 3D
 │   ├── map-module/              # Ứng dụng Leaflet GPS Map & Three.js 3D Car Rendering
 │   └── server.js                # WebSocket & Telematics Gateway Server
 │
-├── bientro/                     # Firmware ESP32-C3 đọc ADC chân ga TPS (ESP-IDF)
+├── bientro/                     # Baseline Firmware đọc ADC chân ga ESP-IDF
 ├── bridge_server.py             # Server cầu nối telemetry giữa CAN/UART và HMI
+├── ketqualan1.jpg               # Ảnh chụp kết quả màn hình phần cứng LCD thực tế
 ├── .gitignore
 └── README.md
 ```
@@ -85,7 +99,7 @@ Hệ thống được thiết kế theo kiến trúc chuẩn Automotive: phân t
 
 ---
 
-## 1. Module Giao diện Thiết bị Ký tự & IOCTL (`step1_chardev`)
+## 1. Module Giao diện Thiết bị Ký tự & IOCTL (`chardev_control`)
 
 Module cung cấp kênh giao tiếp cơ bản giữa không gian người dùng và Kernel Space, hỗ trợ đọc/ghi chuỗi byte và cấu hình thanh ghi thiết bị thông qua các mã lệnh IOCTL chuẩn POSIX.
 
@@ -99,7 +113,7 @@ Module cung cấp kênh giao tiếp cơ bản giữa không gian người dùng 
 ### Biên dịch & Kiểm thử
 **Biên dịch trên host:**
 ```bash
-cd ~/car-ivi/step1_chardev
+cd ~/car-ivi/chardev_control
 make
 make deploy
 ```
@@ -127,7 +141,7 @@ insmod hello.ko
 
 ---
 
-## 2. Module Thu thập Vận tốc Xe qua Ngắt Phần cứng (`step2_gpio_interrupt`)
+## 2. Module Thu thập Vận tốc Xe qua Ngắt Phần cứng (`wheel_speed_sensor`)
 
 Module đóng vai trò là tầng tiếp nhận tín hiệu từ cảm biến xung bánh xe (Wheel Speed Sensor / Hall Sensor) với khả năng phản hồi thời gian thực tức thời mà không làm tiêu tốn tài nguyên xử lý của CPU.
 
@@ -147,7 +161,7 @@ Row 6:  [ P9_11 ]          [ P9_12 ] (GPIO 540 - Pulse Input)
 ### Biên dịch & Kiểm thử
 **Biên dịch trên host:**
 ```bash
-cd ~/car-ivi/step2_gpio_interrupt
+cd ~/car-ivi/wheel_speed_sensor
 make
 make deploy
 ```
@@ -164,7 +178,7 @@ chmod +x test_speed
 **Kết quả kiểm tra:**
 ```text
 =========================================
-   CAR-IVI SPEEDOMETER TEST (STEP 2)
+   CAR-IVI WHEEL SPEEDOMETER TEST
 =========================================
 [USER SPACE] Dang o che do NGU YEN cho banh xe quay (0% CPU)...
 
@@ -178,7 +192,7 @@ chmod +x test_speed
 
 ---
 
-## 3. Module Tích hợp Device Tree & Platform Driver (`step3_platform`)
+## 3. Module Tích hợp Device Tree & Platform Driver (`platform_driver`)
 
 Chuyển đổi toàn bộ driver sang kiến trúc **Platform Driver** chuẩn Linux mainline nhằm loại bỏ việc gán cứng chân phần cứng trong mã nguồn C, cho phép driver tái sử dụng linh hoạt trên nhiều biến thể phần cứng khác nhau.
 
@@ -209,7 +223,7 @@ Chuyển đổi toàn bộ driver sang kiến trúc **Platform Driver** chuẩn 
 ### Quy trình Tích hợp & Kiểm thử
 **1. Biên dịch và ghép DTB trên host:**
 ```bash
-cd ~/car-ivi/step3_platform
+cd ~/car-ivi/platform_driver
 make
 
 # Ghép node vào DTB gốc
@@ -326,25 +340,78 @@ chmod +x map_navi
 
 ---
 
-## 6. Module Mạng CAN Bus Ô tô / TWAI Gateway (`step4_can_twai` - Đang triển khai)
+## 6. Module Mạng CAN Bus Ô tô & Telematics Gateway (`can_gateway` & `can_sender`)
 
-Xây dựng mạng truyền thông công nghiệp CAN 2.0B kết nối giữa ECU động cơ (ESP32-C3) và Gateway trung tâm (BeagleBone Black) thông qua 2 module thu phát TI SN65HVD230 (WCMCU-230).
+Xây dựng mạng truyền thông công nghiệp CAN 2.0B thời gian thực kết nối giữa ECU động cơ (ESP32-C3) và Gateway trung tâm (BeagleBone Black) thông qua 2 module thu phát TI SN65HVD230 (WCMCU-230).
 
 ### Sơ đồ Kết nối Phần cứng
-* **Nút ESP32-C3 (Engine / Sensor ECU):**
-  * Biến trở chân ga (Throttle Position Sensor): Nối vào kênh ADC `GPIO 2`, cấp nguồn `3V3` và `GND`.
-  * Module WCMCU-230 #1: Chân `CTX` nối `GPIO 5`, `CRX` nối `GPIO 6`, cấp nguồn `3V3` và `GND`.
-* **Nút BeagleBone Black (Central Gateway):**
-  * Module WCMCU-230 #2: Chân `CTX` nối `P9_26` (DCAN1 TX), `CRX` nối `P9_24` (DCAN1 RX), cấp nguồn `P9_03` (3.3V) và `P9_01` (GND).
-* **Đường truyền Bus CAN:**
-  * Dây `CAN_H` nối `CAN_H`, dây `CAN_L` nối `CAN_L`, nối chung đường mass `GND`.
 
-### Cơ chế Hoạt động
-1. **Phía ESP32-C3 (ESP-IDF Firmware):**
-   * Sử dụng driver phần cứng TWAI của ESP-IDF cấu hình ở tốc độ **125 kbps**.
-   * Đọc tỷ lệ bàn đạp ga, tính toán vận tốc mô phỏng (0 - 200 km/h), vòng tua máy RPM (800 - 6500 RPM) và cấp số truyền động.
-   * Đóng gói bản tin CAN chuẩn 8-byte với định danh `CAN ID = 0x100` và phát chu kỳ 50ms (20 Hz).
-2. **Phía BeagleBone Black (SocketCAN / C Client):**
-   * Kích hoạt giao diện mạng `can0` trong Linux Kernel.
-   * Ứng dụng C mở RAW Socket (`PF_CAN`, `SOCK_RAW`) tiếp nhận khung tin và cập nhật dữ liệu lên hệ thống hiển thị.
+| Thiết bị | Chân phần cứng | Chức năng | Kết nối đối ứng |
+|:---|:---:|:---:|:---|
+| **ESP32-C3** | `GPIO 2` | ADC1_CH2 | Chân giữa Biến trở chân ga (TPS 0-3.3V) |
+| | `GPIO 5` | TWAI_TX | Chân CTX Module WCMCU-230 #1 |
+| | `GPIO 6` | TWAI_RX | Chân CRX Module WCMCU-230 #1 |
+| | `3V3` & `GND` | Power | Cấp nguồn Module WCMCU-230 #1 & Biến trở |
+| **CAN Bus Link** | `CAN_H` <-> `CAN_H` | Vi sai CAN High | Trở kháng đầu cuối 120Ω tích hợp |
+| | `CAN_L` <-> `CAN_L` | Vi sai CAN Low | Trở kháng đầu cuối 120Ω tích hợp |
+| | `GND` <-> `GND` | Mass tham chiếu | Triệt tiêu điện áp lệch đất (Ground Offset) |
+| **BeagleBone Black** | `P9_26` | DCAN1_TX (Mode 2) | Chân CTX Module WCMCU-230 #2 |
+| | `P9_24` | DCAN1_RX (Mode 2) | Chân CRX Module WCMCU-230 #2 |
+| | `P9_03` (3.3V) & `P9_01` | Power | Cấp nguồn Module WCMCU-230 #2 |
+
+### Định dạng Bản tin CAN (CAN ID: `0x100`, DLC: 8 Bytes)
+* **Byte 0:** Bướm ga TPS (`0 - 100%`).
+* **Byte 1:** Vận tốc xe (`0 - 200 km/h`).
+* **Byte 2..3:** Vòng tua động cơ RPM (`800 - 6500 RPM`, Big-Endian).
+* **Byte 4:** Cấp số truyền động (`0: P, 1: R, 2: N, 3: D`).
+* **Byte 5..6:** Reserved (`0x00 0x00`).
+* **Byte 7:** Sequence Counter (`0 - 255`).
+
+### Quy trình Tích hợp & Kiểm thử
+
+**1. Biên dịch và nạp Firmware ESP32-C3 (`can_sender`):**
+```bash
+cd ~/car-ivi/can_sender
+idf.py build flash -p /dev/ttyUSB0 monitor
+```
+
+**2. Kích hoạt giao diện SocketCAN trên BeagleBone Black:**
+```bash
+ip link set can0 type can bitrate 125000
+ip link set can0 up
+```
+
+**3. Biên dịch và khởi chạy Digital Cockpit (`can_gateway`):**
+```bash
+# Trên Ubuntu VM:
+cd ~/car-ivi/can_gateway
+make
+make deploy
+
+# Trên BeagleBone Black:
+cd /root
+./can_receiver
+```
+
+**Kết quả kiểm tra thực tế:**
+```text
+=================================================================
+  🚗 BEAGLEBONE BLACK - CAN DIGITAL CLUSTER (NON-BLOCKING)      
+=================================================================
+  Port: can0 (125 kbps) | Bus: ONLINE | Frames: 1542 | Seq: #88
+-----------------------------------------------------------------
+
+  [ SPEEDOMETER ]    112 km/h    [██████████████░░░░░░░░░░░]
+
+  [ TACHOMETER  ]   4160 RPM     [████████████████░░░░░░░░░]
+
+  [ THROTTLE TPS]     56 %       [██████████████░░░░░░░░░░░]
+
+  [ TRANSMISSION]    GEAR: [ D ]
+
+-----------------------------------------------------------------
+  CAN Frame: ID=0x100 DLC=8 | Data: 38 70 10 40 03 00 00 58
+  [Nhan Ctrl+C de thoat ngay lap tuc]
+```
+
 

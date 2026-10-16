@@ -15,7 +15,7 @@ int main() {
     int pulses = 0;
 
     printf("=========================================\n");
-    printf("   CAR-IVI SPEEDOMETER TEST (STEP 2)     \n");
+    printf("   CAR-IVI WHEEL SPEEDOMETER TEST        \n");
     printf("=========================================\n");
 
     // 1. Mở file thiết bị
